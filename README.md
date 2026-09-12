@@ -1,15 +1,37 @@
 # iPhone Continuity Camera on Linux Research
 
+<p align="center">
+  <img src="docs/mascot.png" alt="Project mascot" width="240">
+</p>
+
 Experimental, evidence-first reverse engineering of Apple Continuity Camera, initially using macOS as an oracle. The target is a Linux daemon that uses an unmodified, trusted iPhone and publishes video through GStreamer, PipeWire, or V4L2.
+
+## Quick Start
+
+The offline crypto helpers run on any OS with Python 3.12+ and reproduce the reverse-engineered protocol without any Apple hardware.
+
+Prerequisites: [`uv`](https://docs.astral.sh/uv/) for Python dependency management. `openssl` on `PATH` for the SRTP helper.
+
+```bash
+git clone https://github.com/mnsosa/iphone-continuity-linux-research.git
+cd iphone-continuity-linux-research
+uv sync
+uv run python scripts/pair-verify.py self-test
+uv run python scripts/rapport-aead.py self-test
+uv run python scripts/srtp-aes256.py self-test
+```
+
+The macOS-only capture and runtime-analysis scripts (`scripts/*.sh`, `macos-probe/`) require an Apple Silicon Mac with an iPhone signed into the same Apple Account, plus `sudo` for packet capture. They are described under "Reproducing the macOS Capture" below.
 
 ## Status
 
-The first controlled experiment is complete. This iPhone is **not** exposed as UVC. macOS uses USB configuration 6 and two CDC-NCM links; Continuity Camera runs on the hidden `en10` link as Rapport control sessions plus HEVC over AES-256-CM/HMAC-SHA1-80 SRTP. Rapport RPC uses OPACK dictionaries inside AEAD records with a four-byte authenticated header. The `main` Rapport stream is confirmed to use ChaCha20-Poly1305 (16-byte tag) with per-direction HKDF-SHA512 keys (`ClientEncrypt-main` / `ServerEncrypt-main`, empty salt over the Pair-Verify secret) and independent 96-bit little-endian nonces. The receiving Rapport stream server generates each 32-byte media stream key and sends it in the path-setup response; Continuity Capture combines that key with 14 bytes of the session UUID. See `notes/findings.md` and `notes/protocol.md` for evidence and confidence levels.
+The first controlled experiment is complete. This iPhone is **not** exposed as UVC. macOS uses USB configuration 6 and two CDC-NCM links; Continuity Camera runs on a hidden CDC-NCM link (`en10` on the test machine) as Rapport control sessions plus HEVC over AES-256-CM/HMAC-SHA1-80 SRTP. Rapport RPC uses OPACK dictionaries inside AEAD records with a four-byte authenticated header. The `main` Rapport stream is confirmed to use ChaCha20-Poly1305 (16-byte tag) with per-direction HKDF-SHA512 keys (`ClientEncrypt-main` / `ServerEncrypt-main`, empty salt over the Pair-Verify secret) and independent 96-bit little-endian nonces. The receiving Rapport stream server generates each 32-byte media stream key and sends it in the path-setup response; Continuity Capture combines that key with 14 bytes of the session UUID. See `notes/findings.md` and `notes/protocol.md` for evidence and confidence levels.
 
-Run the complete experiment from a terminal so `sudo` and camera permission prompts are visible:
+## Reproducing the macOS Capture
+
+Run from a Terminal on the Mac so `sudo` and camera permission prompts are visible:
 
 ```bash
-cd /Volumes/ssd500/general/workspace/iphone-continuity-linux-research
 ./scripts/build-probe.sh
 ./scripts/run-experiment.sh
 ```
@@ -31,6 +53,8 @@ Private-framework runtime metadata can be regenerated without modifying system f
 ```bash
 ./scripts/dump-private-runtime.sh
 ```
+
+## Offline Crypto Helpers
 
 Python helpers are managed with `uv` (`pyproject.toml`); run them via `uv run`. Validate the offline AES-256 SRTP key derivation against RFC 6188:
 
@@ -55,6 +79,17 @@ uv run python scripts/pair-verify.py self-test
 ```
 
 See `notes/authentication.md` for the reconstructed M1-M4 flow, TLV types, and KDF labels.
+
+## How To Continue
+
+The transport and crypto layers are reproducible; the open work is the identity blocker and, separately, a practical Linux camera path.
+
+1. Read `notes/` in order: `architecture.md` (map), `usb.md` / `network.md` (transport), `protocol.md` (RPC, framing, SRTP), `authentication.md` (Pair-Verify + the SameAccount identity gate), `findings.md` (evidence log), `prior-art.md` (libimobiledevice, go-ios, pymobiledevice3).
+2. Reproduce a capture on your own Mac + iPhone with the scripts above, then diff your `experiments/runs/<timestamp>/` against the documented findings.
+3. Extend the offline helpers into a live Linux client: USB mode-switch to expose the hidden CDC-NCM link, `_remoted._tcp` discovery, then drive Pair-Verify with `scripts/pair-verify.py` and the Rapport framing/AEAD from `scripts/rapport-aead.py`.
+4. Identity is the hard blocker (see Key Finding). Contributions exploring same-account credential import, or an alternative non-Continuity camera path (e.g. an RTSP/MJPEG source bridged to `v4l2loopback`), are welcome.
+
+Confidence labels (`CONFIRMED`, `HIGH CONFIDENCE`, `LIKELY`, `SPECULATION`, `DISPROVEN`) are used throughout `notes/`; please keep new claims tagged and backed by evidence (method names, addresses, or capture references).
 
 ## Safety And Scope
 
