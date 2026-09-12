@@ -1,0 +1,18 @@
+.build/
+macos-probe/build/
+captures/**/*.pcap
+logs/runs/
+experiments/runs/
+dumps/private-runtime.txt
+.DS_Store
+__pycache__/
+*.pyc
+.venv/
+
+# Local opencode workspace config, not part of the project
+.opencode/
+
+# Captured device data contains personal identifiers (serials, hostnames, IPs)
+experiments/
+captures/
+logs/
